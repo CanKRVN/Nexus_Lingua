@@ -1,0 +1,490 @@
+# ============================================================
+#  NEXUS LINGUA — .cursorrules
+#  Universal Vocabulary Engine | Flutter + Dart + SQLite + FSRS
+#  These rules are MANDATORY. Do not deviate without explicit
+#  instruction from the developer.
+# ============================================================
+
+
+# ────────────────────────────────────────────────────────────
+# SECTION 1 — PROJECT IDENTITY
+# ────────────────────────────────────────────────────────────
+
+project:
+  name: nexus_lingua
+  description: >
+    A local-first, cross-platform (Windows 11 + Android) vocabulary
+    learning application. Vocabulary is treated as a mathematically
+    modeled dynamic dataset. The SRS engine is FSRS-4.5. The UI is
+    Cyber-Minimalist. All design, architecture, and logic decisions
+    must align with the Nexus Lingua PRD v1.0.
+  language: Dart
+  framework: Flutter
+  platforms:
+    - windows
+    - android
+
+
+# ────────────────────────────────────────────────────────────
+# SECTION 2 — CYBER-MINIMALIST DESIGN SYSTEM
+# ────────────────────────────────────────────────────────────
+# These are the ONLY colors to use. Never introduce colors
+# outside this palette without explicit developer approval.
+# ────────────────────────────────────────────────────────────
+
+design_system:
+  theme: Cyber-Minimalist
+
+  colors:
+    # Core backgrounds
+    background_primary:   "#0D0D0D"   # Obsidian — app bg, card backs
+    surface_glass:        "rgba(255,255,255,0.05)"  # Glassmorphic card fronts
+
+    # Neon accent palette
+    accent_cyan:          "#00BCD4"   # Borders, masculine gender, interactive elements
+    accent_magenta:       "#E91E8C"   # Feminine gender, warning states
+    accent_green:         "#00E676"   # Neuter gender, success states
+
+    # Feedback colors (rating results)
+    feedback_crit:        "#00E676"   # Easy / Crit! — perfect match
+    feedback_hit:         "#69F0AE"   # Good / Hit — minor typo
+    feedback_hard:        "#FFD740"   # Hard — shaky spelling (Amber)
+    feedback_miss:        "#FF5252"   # Again / Miss — wrong word (Neon Red)
+
+    # Typography
+    text_body:            "#E0E0E0"   # Primary content text
+    text_subtext:         "#777777"   # Secondary labels, captions
+    text_disabled:        "#444444"
+
+    # Special
+    badge_legend_gold:    "#FFD700"   # Legend mastery badge only
+    border_neutral:       "#555555"   # Cards without gender metadata
+
+  gender_color_function:
+    # f(gender) -> border color. Applied to BoxDecoration at render time.
+    # Read the 'gender' key from card.metadata (φ map).
+    masculine:   "#00BCD4"  # accent_cyan
+    feminine:    "#E91E8C"  # accent_magenta
+    neuter:      "#00E676"  # accent_green
+    none:        "#555555"  # border_neutral
+
+  typography:
+    font_primary: "Inter"          # or system sans-serif fallback
+    font_mono:    "JetBrains Mono" # for lemma display and code elements
+    # Never use serif fonts anywhere in the UI.
+
+  visual_effects:
+    glow_pulse:
+      description: >
+        Neon border brightness is a function of Stability (S).
+        Use CustomPainter (MVP) or GLSL fragment shaders (v1.1+).
+        S > 30 days → active pulsing glow.
+        S < 1 day  → dim, static border, no animation.
+      implementation: CustomPainter  # upgrade to GLSL in v1.1
+    confetti:
+      trigger: "FSRS rating == Easy (4) OR similarity ratio R == 1.0"
+      package: confetti
+    glitch:
+      trigger: "FSRS rating == Again (1)"
+      duration_ms: 300
+
+  layout_philosophy: >
+    Box Method — all UI is a tree of nested rectangular containers.
+    No freeform positioning unless absolutely required.
+    The FlashcardWidget uses a dynamic 2x2 or 3x2 grid that expands
+    based on the number of active metadata fields in the LanguageProfile.
+
+
+# ────────────────────────────────────────────────────────────
+# SECTION 3 — ARCHITECTURE CONSTRAINTS
+# These patterns are NON-NEGOTIABLE for v1.0.
+# ────────────────────────────────────────────────────────────
+
+architecture:
+
+  # --- 3.1 SINGLETON: DatabaseHelper ---
+  database_helper:
+    pattern: Singleton
+    file: lib/core/database/database_helper.dart
+    class: DatabaseHelper
+    rules:
+      - Use a private constructor: `DatabaseHelper._internal()`.
+      - Expose a static factory: `factory DatabaseHelper() => _instance;`
+        OR a static getter `static DatabaseHelper get instance`.
+      - The single SQLite `Database` object is held in a private field
+        `_db` and lazily initialized via `_initDb()` on first access.
+      - NO other class in the codebase may hold a direct reference to
+        a `Database` object. All DB access flows through this class.
+      - All public methods are `async` and return `Future<T>`.
+    required_methods:
+      - "Future<Database> getDatabase()"
+      - "Future<int> insertProfile(LanguageProfile profile)"
+      - "Future<int> insertCard(WordCard card)"
+      - "Future<List<WordCard>> getCardsForProfile(int profileId)"
+      - "Future<List<WordCard>> getDueCards(int profileId, DateTime now)"
+      - "Future<void> updateCardAfterReview(WordCard card)"
+      - "Future<void> insertReviewLog({required int cardId, required int rating, double? similarityR, required double sBefore, required double sAfter})"
+      - "Future<String> exportToJson()"
+
+  # --- 3.2 REPOSITORY PATTERN: CardRepository ---
+  card_repository:
+    pattern: Repository
+    file: lib/core/database/card_repository.dart
+    class: CardRepository
+    rules:
+      - CardRepository is the ONLY class that the UI/feature layer
+        calls for data operations. It wraps DatabaseHelper.
+      - UI widgets and feature controllers MUST NOT call DatabaseHelper
+        directly. They call CardRepository only.
+      - CardRepository may compose multiple DatabaseHelper calls into
+        a single logical operation (e.g., updateCardAndLogReview).
+      - Inject DatabaseHelper via constructor for testability.
+
+  # --- 3.3 PLATFORM GATING ---
+  platform_channels:
+    rule: >
+      Use `Platform.isWindows` and `Platform.isAndroid` (from dart:io)
+      to gate platform-specific behavior. Never use conditional imports
+      for this purpose.
+    desktop_mode:
+      evaluation: SimilarityEvaluator  # automated text scoring
+      input: TextField with onSubmitted callback
+    mobile_mode:
+      evaluation: 4-button manual rating row
+      input: GestureDetector / tappable rating buttons
+
+  # --- 3.4 WIDGET ARCHITECTURE ---
+  widgets:
+    rule: "Prefer StatelessWidget. Use StatefulWidget only at the session-controller level."
+    flashcard_widget:
+      file: lib/shared/widgets/flashcard_widget.dart
+      type: StatelessWidget
+      description: >
+        Receives a WordCard and LanguageProfile as parameters.
+        Renders the dynamic metadata grid. Reads gender from
+        card.metadata to apply border color via gender_color_function.
+    session_controller:
+      type: StatefulWidget
+      description: >
+        Holds study session state: current card index, due card list,
+        session score. Children are stateless.
+
+  # --- 3.5 JSON METADATA INVARIANT ---
+  metadata:
+    rule: >
+      The `metadata` column in SQLite is ALWAYS stored and retrieved
+      as an opaque TEXT string. SQL never parses it. All encode/decode
+      operations happen exclusively in Dart:
+        - toMap()   → jsonEncode(metadata)
+        - fromMap() → jsonDecode(row['metadata']) as Map<String, dynamic>
+      Never write a SQL query that filters or extracts JSON fields.
+
+  # --- 3.6 DIRECTORY STRUCTURE ---
+  directory:
+    lib/:
+      core/:
+        database/:   # DatabaseHelper, CardRepository
+        models/:     # WordCard, LanguageProfile
+        srs/:        # FSRSEngine
+        evaluator/:  # SimilarityEvaluator
+      features/:
+        study/:           # Study session screen + controller
+        deck_manager/:    # Card CRUD + Language Profile Manager
+        dashboard/:       # Mastery Dashboard, heatmap, XP
+        sentence_decoder/ # Windows-only split-screen tokenizer
+      shared/:
+        widgets/:  # FlashcardWidget, XPBar, MasteryBadge, RatingRow
+        theme/:    # AppTheme, AppColors (color tokens as constants)
+
+
+# ────────────────────────────────────────────────────────────
+# SECTION 4 — LOGIC CONSTRAINTS
+# Exact algorithms. Do not substitute or approximate.
+# ────────────────────────────────────────────────────────────
+
+logic:
+
+  # --- 4.1 SIMILARITY EVALUATOR (Desktop Mode) ---
+  similarity_evaluator:
+    file: lib/core/evaluator/similarity_evaluator.dart
+    class: SimilarityEvaluator
+
+    levenshtein:
+      algorithm: >
+        Standard dynamic programming Levenshtein distance.
+        Time complexity O(m*n), space O(min(m,n)) with row optimization.
+        DO NOT use any external package. Implement from scratch in Dart.
+      signature: "int computeLevenshtein(String a, String b)"
+
+    ratio_formula:
+      description: Normalized Levenshtein Distance
+      formula: "R = 1 - (d / max(len(U), len(T)))"
+      where:
+        d:   "Levenshtein edit distance between transformed inputs"
+        U:   "User input string, after case transformation"
+        T:   "Target lemma string, after case transformation"
+        len: "String length in characters"
+      case_transformation: >
+        Read `case_sensitive` boolean from card.metadata['case_sensitive'].
+        If false: apply .toLowerCase() to BOTH strings before computing d.
+        If true:  use strings as-is.
+      clamp: "Result must be clamped to [0.0, 1.0]."
+      signature: "double computeRatio(String userInput, String target, bool caseSensitive)"
+
+    fsrs_mapping:
+      description: >
+        Map ratio R to FSRS rating integer. Thresholds are strict
+        — do not adjust them without explicit developer approval.
+      thresholds:
+        - condition: "R == 1.0"
+          rating: 4
+          label: "Crit!"
+          color: "#00E676"
+        - condition: "R >= 0.85 && R < 1.0"
+          rating: 3
+          label: "Hit"
+          color: "#69F0AE"
+        - condition: "R >= 0.65 && R < 0.85"
+          rating: 2
+          label: "Hard"
+          color: "#FFD740"
+        - condition: "R < 0.65"
+          rating: 1
+          label: "Miss"
+          color: "#FF5252"
+      signature: "int mapToFSRS(double ratio)"
+
+    evaluation_pipeline:
+      description: >
+        Full evaluation pipeline. Returns an EvaluationResult record.
+      steps:
+        1: "Read caseSensitive from card.metadata['case_sensitive'] ?? false"
+        2: "Call computeRatio(userInput, card.lemma, caseSensitive)"
+        3: "Call mapToFSRS(ratio)"
+        4: "Return EvaluationResult(ratio, fsrsRating, label)"
+      signature: "EvaluationResult evaluate(String userInput, WordCard card)"
+      return_type: >
+        EvaluationResult — a Dart record or immutable class with:
+          double ratio, int fsrsRating, String label
+
+    testing:
+      required: true
+      minimum_unit_tests: 10
+      must_cover:
+        - "R == 1.0 (exact match, case-insensitive)"
+        - "R == 1.0 (exact match, case-sensitive)"
+        - "Case-sensitive mismatch that would pass case-insensitive"
+        - "One character typo in a short word (expect Hard or Hit)"
+        - "One character typo in a long word (expect Hit)"
+        - "Empty user input (expect Miss)"
+        - "Completely wrong word (expect Miss)"
+        - "Boundary R = 0.85 (expect Good)"
+        - "Boundary R = 0.65 (expect Hard)"
+        - "Unicode / non-ASCII characters in target lemma"
+
+  # --- 4.2 FSRS ENGINE ---
+  fsrs_engine:
+    file: lib/core/srs/fsrs_engine.dart
+    class: FSRSEngine
+    algorithm_version: FSRS-4.5
+    rules:
+      - Implement FSRS-4.5 using the 17 published default weights.
+      - Do NOT use SM-2 or any earlier algorithm.
+      - schedule() must be a pure function: same inputs → same outputs.
+      - Never mutate the input WordCard. Return a new WordCard instance.
+    state_variables:
+      stability_S:
+        type: double
+        unit: days
+        description: >
+          Days after a review at which Retrievability decays to 0.9.
+          Initialized to a weight-derived value on first review.
+      difficulty_D:
+        type: double
+        range: "1.0 – 10.0"
+        description: >
+          Intrinsic card difficulty. Updated after each review using
+          the FSRS difficulty formula.
+      retrievability_R:
+        type: double
+        range: "0.0 – 1.0"
+        formula: "R(t) = 0.9^(t / S)"
+        description: >
+          Real-time probability of correct recall.
+          t = days elapsed since last review.
+    rating_buttons:
+      1: Again
+      2: Hard
+      3: Good
+      4: Easy
+    main_method:
+      signature: "WordCard schedule(WordCard card, int rating, DateTime now)"
+      returns: >
+        New WordCard with updated stability, difficulty, retrievability,
+        dueDate (= now + Duration(days: S.round())), and reviewCount.
+
+  # --- 4.3 XP BAR FORMULA ---
+  xp_bar:
+    formula: "progress = min(S / S_max, 1.0)"
+    S_max_default: 365
+    S_max_configurable: true
+    widget: LinearProgressIndicator
+    color_behavior: >
+      Transition from dim (low S) to full neon brightness (high S).
+      Use Color.lerp between a muted and the accent_green color token.
+
+  # --- 4.4 MASTERY BADGE THRESHOLDS ---
+  mastery_badges:
+    - badge: Novice
+      stability_range: "0 – 1 day"
+      color: "#777777"
+    - badge: Apprentice
+      stability_range: "1 – 7 days"
+      color: "#00BCD4"
+    - badge: Journeyman
+      stability_range: "7 – 30 days"
+      color: "#00E676"
+    - badge: Elite
+      stability_range: "30 – 120 days"
+      color: "#E91E8C"
+    - badge: Legend
+      stability_range: "120+ days"
+      color: "#FFD700"
+
+
+# ────────────────────────────────────────────────────────────
+# SECTION 5 — DATABASE CONSTRAINTS
+# ────────────────────────────────────────────────────────────
+
+database:
+  engine: SQLite
+  package: sqflite
+  file_name: nexus_lingua.db
+  schema_version: 1
+
+  tables:
+    - language_profiles
+    - word_cards
+    - review_log
+
+  rules:
+    - The `metadata` column in word_cards is TEXT. Never alter its type.
+    - All timestamps are stored as INTEGER Unix timestamps (seconds).
+    - `stability`, `difficulty`, `retrievability` are stored as REAL (double).
+    - Foreign key constraints must be enabled: `PRAGMA foreign_keys = ON;`
+      Call this in _initDb() immediately after opening the database.
+    - Never perform raw SQL outside of DatabaseHelper.
+    - Migration strategy: increment schema_version and handle in onUpgrade.
+
+
+# ────────────────────────────────────────────────────────────
+# SECTION 6 — CODE QUALITY RULES
+# ────────────────────────────────────────────────────────────
+
+code_quality:
+
+  language_version: "Dart 3.x (null-safe)"
+
+  naming:
+    files:        snake_case      # e.g. database_helper.dart
+    classes:      PascalCase      # e.g. DatabaseHelper
+    variables:    camelCase       # e.g. wordCard
+    constants:    SCREAMING_SNAKE # e.g. S_MAX_DEFAULT → prefer camelCase for Dart
+    private:      "_" prefix      # e.g. _instance, _db
+
+  rules:
+    - All public API methods must have dartdoc comments.
+    - Use `final` for all fields that do not change after initialization.
+    - Prefer `const` constructors for immutable widget classes.
+    - Never use `dynamic` as a variable type outside of the φ metadata map.
+      Inside the metadata map, `Map<String, dynamic>` is acceptable and required.
+    - Never use `print()` in production code. Use a logger or `debugPrint()`.
+    - All async functions that can fail must use try/catch and propagate
+      meaningful errors, not swallow them.
+    - SimilarityEvaluator and FSRSEngine must be pure: no side effects,
+      no DB calls, no Flutter dependencies. They are testable in isolation.
+
+  testing:
+    framework: flutter_test
+    required_coverage:
+      - SimilarityEvaluator: ">= 10 unit tests (see logic.similarity_evaluator.testing)"
+      - FSRSEngine: ">= 5 unit tests against known FSRS-4.5 output vectors"
+      - DatabaseHelper: ">= integration tests for insert + query round-trip"
+
+  imports:
+    rule: >
+      Group imports in this order, separated by blank lines:
+        1. dart: core libraries
+        2. package: external packages
+        3. Relative project imports
+      Never use absolute `package:nexus_lingua/...` imports for internal
+      files if relative imports work. Be consistent.
+
+
+# ────────────────────────────────────────────────────────────
+# SECTION 7 — DEFERRED FEATURES (DO NOT IMPLEMENT IN v1.0)
+# ────────────────────────────────────────────────────────────
+
+deferred:
+  - feature: "Always-on-Top Overlay Window (window_manager)"
+    target_version: "v1.2"
+  - feature: "Supabase Cloud Sync"
+    target_version: "v1.2 or v2.0"
+  - feature: "GLSL Fragment Shader Glow"
+    target_version: "v1.1"
+  - feature: "User-tunable FSRS weights"
+    target_version: "v1.2"
+  - feature: "Dart NLP tokenizer (replacing regex)"
+    target_version: "post-Phase 4, conditional"
+  - feature: "Media (images, audio)"
+    target_version: "v2.0 — v1.0 is strictly text-based"
+
+  rule: >
+    When Cursor generates code, it must NOT add stubs, TODOs, or
+    placeholder implementations for deferred features. Keep v1.0
+    scope clean. Deferred items do not exist until explicitly requested.
+
+
+# ────────────────────────────────────────────────────────────
+# SECTION 8 — CURSOR BEHAVIOR DIRECTIVES
+# ────────────────────────────────────────────────────────────
+
+cursor_directives:
+  - >
+    When generating any Flutter widget, apply the Cyber-Minimalist
+    color tokens from Section 2. Never use Flutter's default blue
+    Material theme colors (e.g., Colors.blue, Colors.indigo).
+  - >
+    When generating any data access code, enforce the Singleton +
+    Repository pattern from Section 3. Never expose DatabaseHelper
+    to widgets or feature controllers directly.
+  - >
+    When implementing text comparison or answer evaluation, use the
+    Normalized Levenshtein formula R = 1 - d/max(len(U),len(T))
+    from Section 4.1 exactly as specified. Do not use any library
+    that provides "fuzzy matching" or "string similarity" as a black
+    box — the algorithm must be transparent and auditable.
+  - >
+    When implementing the SRS scheduling logic, use FSRS-4.5 only.
+    Do not suggest, implement, or reference SM-2, SuperMemo, or any
+    other algorithm.
+  - >
+    When writing the metadata column, always pass it through
+    jsonEncode/jsonDecode in Dart. Never construct a SQL query that
+    reads or writes individual JSON fields.
+  - >
+    All generated code must be null-safe Dart 3.x. Never use the
+    late keyword unless initialization is guaranteed within the same
+    constructor call or initState.
+  - >
+    Do not add dependencies to pubspec.yaml that are not already
+    specified in the PRD stack (sqflite, path, path_provider,
+    confetti, window_manager) without flagging it to the developer
+    first and explaining the rationale.
+  - >
+    v1.0 is strictly text-based. Do not generate any image loading,
+    audio playback, or media handling code.
+
+# ============================================================
+# END OF .cursorrules — Nexus Lingua v1.0
+# ============================================================
