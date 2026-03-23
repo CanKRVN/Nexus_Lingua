@@ -15,7 +15,11 @@ dependencies:
   sqflite_common_ffi_web: ^1.0.1
   path: ^1.9.1
   path_provider: ^2.1.5
-  confetti: ^0.7.0
+  google_fonts: ^6.2.1
+  shared_preferences: ^2.3.5
+  file_picker: ^10.3.10
+  csv: ^8.0.0
+  excel: ^4.0.6
 
 dev_dependencies:
   flutter_test:

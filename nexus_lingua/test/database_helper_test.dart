@@ -13,7 +13,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// First due-queue load is seeded so the study screen settles without relying on
-/// pump(Duration) (never idles with spinners/confetti) or long real-time waits.
+/// pump(Duration) (never idles with spinners) or long real-time waits.
 /// Subsequent loads use the real DB (e.g. after a review).
 final class _SeededFirstLoadRepository extends CardRepository {
   _SeededFirstLoadRepository({
@@ -53,11 +53,9 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    StudySessionScreen.debugOmitConfettiOverlay = true;
   });
 
   tearDownAll(() {
-    StudySessionScreen.debugOmitConfettiOverlay = false;
   });
 
   setUp(() async {
@@ -172,6 +170,87 @@ void main() {
     expect(json, contains('language_profiles'));
     expect(json, contains('word_cards'));
     expect(json, contains('review_log'));
+    expect(json, contains('app_preferences'));
+  });
+
+  test('importProfilesAndCardsFromJson restores app_preferences when present', () async {
+    final h = DatabaseHelper();
+    await h.getDatabase();
+    final pid = await h.insertProfile(
+      LanguageProfile(
+        language: 'PrefImport',
+        features: const [],
+        createdAt: DateTime.utc(2025),
+      ),
+    );
+    await h.insertCard(
+      WordCard(
+        profileId: pid,
+        lemma: 'one',
+        translation: 'eins',
+        dueDate: DateTime.utc(2025),
+        createdAt: DateTime.utc(2025),
+        metadata: const {},
+      ),
+    );
+    await h.setAppPreference('theme_mode', 'dark');
+    final exported = await h.exportToJson();
+    await h.closeDatabaseForTesting();
+    DatabaseHelper.debugDatabaseAbsolutePath = p.join(
+      testTempDir!.path,
+      'import_prefs.db',
+    );
+    final h2 = DatabaseHelper();
+    await h2.getDatabase();
+    await h2.setAppPreference('theme_mode', 'light');
+    expect(await h2.getAppPreference('theme_mode'), 'light');
+    final r = await h2.importProfilesAndCardsFromJson(exported);
+    expect(r.profiles, 1);
+    expect(r.cards, 1);
+    expect(r.preferences, greaterThanOrEqualTo(1));
+    expect(await h2.getAppPreference('theme_mode'), 'dark');
+  });
+
+  test('debugFastForward subtracts days so future cards become due', () async {
+    final h = DatabaseHelper();
+    await h.getDatabase();
+    final ref = DateTime.utc(2025, 6, 15, 12);
+    final refSec = ref.millisecondsSinceEpoch ~/ 1000;
+    final futureSec = refSec + 3 * 86400;
+    final futureDue = DateTime.fromMillisecondsSinceEpoch(
+      futureSec * 1000,
+      isUtc: true,
+    ).toLocal();
+
+    final pid = await h.insertProfile(
+      LanguageProfile(
+        language: 'FF',
+        features: const [],
+        createdAt: ref,
+      ),
+    );
+
+    for (var i = 0; i < 5; i++) {
+      await h.insertCard(
+        WordCard(
+          profileId: pid,
+          lemma: 'w$i',
+          translation: 't',
+          dueDate: futureDue,
+          createdAt: ref,
+          metadata: const {},
+        ),
+      );
+    }
+
+    final dueBefore = await h.getDueCards(pid, ref);
+    expect(dueBefore, isEmpty);
+
+    final updated = await h.debugFastForward(pid, 7);
+    expect(updated, 5);
+
+    final dueAfter = await h.getDueCards(pid, ref);
+    expect(dueAfter, hasLength(5));
   });
 
   group('CardRepository.commitReview (Phase 3)', () {
@@ -326,7 +405,7 @@ void main() {
       final repo = _SeededFirstLoadRepository(helper: h, initialDue: dueNow);
 
       // Force compact study (FsrsRatingRow); default binding width can be ≥840 on some setups.
-      // TickerMode off: spinners/confetti must not schedule perpetual frames or pump() can stall.
+      // TickerMode off: spinners must not schedule perpetual frames or pump() can stall.
       await tester.pumpWidget(
         TickerMode(
           enabled: false,
@@ -422,14 +501,12 @@ void main() {
       await tester.pump();
 
       expect(find.text('alphaLemma'), findsOneWidget);
-      await tester.tap(find.text('alphaLemma'));
-      for (var i = 0; i < 24; i++) {
-        await tester.pump();
-      }
-
       expect(find.byType(TextField), findsOneWidget);
-      await tester.enterText(find.byType(TextField), 'alphalemma');
+      await tester.enterText(find.byType(TextField), 'alphagloss');
       await tester.tap(find.text('Submit answer'));
+      await tester.pump();
+      expect(find.text('Next card'), findsOneWidget);
+      await tester.tap(find.text('Next card'));
       await tester.pump();
       await tester.runAsync(() async {
         await Future<void>.delayed(const Duration(milliseconds: 400));

@@ -24,10 +24,10 @@ class WordCard {
   /// Foreign key to [LanguageProfile].
   final int profileId;
 
-  /// Primary form being learned (L).
+  /// Target-language headword (no leading article — use [metadata] `article`).
   final String lemma;
 
-  /// Gloss / translation (T).
+  /// Known-language gloss (what you type when direction is target → known).
   final String translation;
 
   /// FSRS stability S (days).
@@ -139,3 +139,16 @@ class WordCard {
     );
   }
 }
+
+/// Display and typist expected string for the target language side.
+extension WordCardTargetSurface on WordCard {
+  /// Target form for cards and answers: optional [metadata.article] + space + [lemma].
+  String get targetSurface {
+    final a = (metadata['article'] as String?)?.trim();
+    if (a != null && a.isNotEmpty) {
+      return '$a ${lemma.trim()}'.trim();
+    }
+    return lemma.trim();
+  }
+}
+

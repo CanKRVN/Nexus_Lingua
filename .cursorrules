@@ -57,6 +57,7 @@ design_system:
     surface_glass:        "rgba(255,255,255,0.05)"  # Glassmorphic card fronts
 
     # Neon accent palette
+    # Canonical implementation: [NexusPaletteDark.primary] / ColorScheme.primary (#00BCD4).
     accent_cyan:          "#00BCD4"   # Borders, masculine gender, interactive elements
     accent_magenta:       "#E91E8C"   # Feminine gender, warning states
     accent_green:         "#00E676"   # Neuter gender, success states
@@ -79,7 +80,7 @@ design_system:
   gender_color_function:
     # f(gender) -> border color. Applied to BoxDecoration at render time.
     # Read the 'gender' key from card.metadata (φ map).
-    masculine:   "#00BCD4"  # accent_cyan
+    masculine:   "#00BCD4"  # accent_cyan — same hex as ColorScheme.primary
     feminine:    "#E91E8C"  # accent_magenta
     neuter:      "#00E676"  # accent_green
     none:        "#555555"  # border_neutral
@@ -168,6 +169,18 @@ architecture:
       - CardRepository may compose multiple DatabaseHelper calls into
         a single logical operation (e.g., updateCardAndLogReview).
       - Inject DatabaseHelper via constructor for testability.
+
+  # --- 3.2b BACKEND MAINTENANCE LOG (MANDATORY FOR AGENTS) ---
+  backend_maintenance_log:
+    file: docs/BACKEND_MAINTENANCE_LOG.md
+    rule: >
+      Whenever you change local persistence — DatabaseHelper schema or
+      migrations, backup/import JSON shape, sqflite web or native initialization,
+      CardRepository data contracts, or related platform backup code — you MUST
+      append a new dated section to docs/BACKEND_MAINTENANCE_LOG.md. Use a
+      markdown heading "## YYYY-MM-DD — short title" and include Diagnosis,
+      Actions taken, and Follow-ups. Do not delete or rewrite prior sections;
+      append only so other agents retain an audit trail.
 
   # --- 3.3 STUDY MODE & PLATFORM GATING (WEB-SAFE) ---
   platform_channels:

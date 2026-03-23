@@ -26,7 +26,7 @@ class NexusResponsiveShell extends StatelessWidget {
   final double leadingWidth;
   final double trailingWidth;
 
-  bool get _isWide => maxWidth >= NexusBreakpoints.wideLayoutMinWidthLp;
+  bool get _isWide => NexusBreakpoints.isWideLayout(maxWidth);
 
   @override
   Widget build(BuildContext context) {

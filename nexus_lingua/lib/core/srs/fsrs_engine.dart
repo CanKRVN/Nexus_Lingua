@@ -37,6 +37,15 @@ class FSRSEngine {
     2.61,
   ];
 
+  /// Hypothetical next due instants for each rating 1..4 at [now] (read-only).
+  ///
+  /// Does not mutate [card]. Uses the same rules as [schedule].
+  List<DateTime> previewDueDates(WordCard card, DateTime now) {
+    return [
+      for (var r = 1; r <= 4; r++) schedule(card, r, now).dueDate,
+    ];
+  }
+
   /// Returns a new [WordCard] after applying [rating] (1–4) at [now].
   ///
   /// Does not mutate [card]. [dueDate] is set to `now + Duration(days: S.round())`
@@ -54,7 +63,7 @@ class FSRSEngine {
   WordCard _firstReview(WordCard card, int rating, DateTime now) {
     final newS = math.max(w[rating - 1], 0.1);
     final newD = _initDifficulty(rating);
-    final due = now.add(Duration(days: newS.round()));
+    final due = _nextDueFromStability(now, newS);
     return card.copyWith(
       stability: newS,
       difficulty: newD,
@@ -82,7 +91,7 @@ class FSRSEngine {
         : _nextRecallStability(d, s, r, rating);
 
     final clampedS = newS.clamp(0.1, 36500.0);
-    final due = now.add(Duration(days: clampedS.round()));
+    final due = _nextDueFromStability(now, clampedS);
 
     return card.copyWith(
       stability: clampedS,
@@ -137,5 +146,12 @@ class FSRSEngine {
         math.pow(d, -w[12]) *
         (math.pow(s + 1, w[13]) - 1) *
         math.exp((1 - r) * w[14]);
+  }
+
+  DateTime _nextDueFromStability(DateTime now, double stabilityDays) {
+    // We store due dates at day granularity; never schedule "now", which can
+    // trap users in immediate re-due loops after a miss.
+    final days = math.max(1, stabilityDays.round());
+    return now.add(Duration(days: days));
   }
 }
