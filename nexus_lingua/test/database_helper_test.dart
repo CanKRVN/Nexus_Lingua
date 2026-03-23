@@ -6,6 +6,7 @@ import 'package:nexus_lingua/core/database/card_repository.dart';
 import 'package:nexus_lingua/core/database/database_helper.dart';
 import 'package:nexus_lingua/core/models/language_profile.dart';
 import 'package:nexus_lingua/core/models/word_card.dart';
+import 'package:nexus_lingua/core/settings/nexus_settings.dart';
 import 'package:nexus_lingua/core/srs/fsrs_engine.dart';
 import 'package:nexus_lingua/features/study/study_session_screen.dart';
 import 'package:nexus_lingua/shared/theme/app_theme.dart';
@@ -47,6 +48,26 @@ final class _WidgetTestRepository extends CardRepository {
 bool get _skipStudySessionScreenWidgets {
   if (!Platform.isWindows) return false;
   return Platform.environment['FORCE_STUDY_WIDGET_TESTS'] != 'true';
+}
+
+Widget _testStudyHost({
+  required Size size,
+  required Widget child,
+  bool tickerEnabled = false,
+}) {
+  return TickerMode(
+    enabled: tickerEnabled,
+    child: MediaQuery(
+      data: MediaQueryData(size: size),
+      child: NexusSettingsScope(
+        notifier: NexusSettings(),
+        child: MaterialApp(
+          theme: buildNexusTheme(),
+          home: child,
+        ),
+      ),
+    ),
+  );
 }
 
 Future<void> _pumpUntilFound(
@@ -415,25 +436,19 @@ void main() {
       // Force compact study (FsrsRatingRow); default binding width can be ≥840 on some setups.
       // TickerMode off: spinners must not schedule perpetual frames or pump() can stall.
       await tester.pumpWidget(
-        TickerMode(
-          enabled: false,
-          child: MediaQuery(
-            data: const MediaQueryData(size: Size(600, 800)),
-            child: MaterialApp(
-              theme: buildNexusTheme(),
-              home: StudySessionScreen(
-                profile: profile,
-                repository: repo,
-              ),
-            ),
+        _testStudyHost(
+          size: const Size(600, 800),
+          child: StudySessionScreen(
+            profile: profile,
+            repository: repo,
           ),
         ),
       );
       await _pumpUntilFound(tester, find.text('alphaLemma'));
       await tester.tap(find.text('alphaLemma'));
-      await _pumpUntilFound(tester, find.text('Hit'));
+      await _pumpUntilFound(tester, find.text('Good'));
 
-      await tester.tap(find.text('Hit'));
+      await tester.tap(find.text('Good'));
       await _pumpUntilFound(tester, find.text('No due cards'));
       expect(repo.commits, hasLength(1));
       expect(repo.commits.single.rating, 3);
@@ -464,17 +479,11 @@ void main() {
       final repo = _WidgetTestRepository(profileId: pid, initialDue: dueTypist);
 
       await tester.pumpWidget(
-        TickerMode(
-          enabled: false,
-          child: MediaQuery(
-            data: const MediaQueryData(size: Size(1200, 800)),
-            child: MaterialApp(
-              theme: buildNexusTheme(),
-              home: StudySessionScreen(
-                profile: profile,
-                repository: repo,
-              ),
-            ),
+        _testStudyHost(
+          size: const Size(1200, 900),
+          child: StudySessionScreen(
+            profile: profile,
+            repository: repo,
           ),
         ),
       );
