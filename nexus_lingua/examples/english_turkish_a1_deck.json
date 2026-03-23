@@ -1,0 +1,38 @@
+{
+  "deck": {
+    "language": "English",
+    "known_language": "Turkish"
+  },
+  "cards": [
+    { "lemma": "hello", "translation": "merhaba" },
+    { "lemma": "goodbye", "translation": "hosca kal" },
+    { "lemma": "please", "translation": "lutfen" },
+    { "lemma": "thanks", "translation": "tesekkurler" },
+    { "lemma": "yes", "translation": "evet" },
+    { "lemma": "no", "translation": "hayir" },
+    { "lemma": "water", "translation": "su" },
+    { "lemma": "bread", "translation": "ekmek" },
+    { "lemma": "milk", "translation": "sut" },
+    { "lemma": "apple", "translation": "elma" },
+    { "lemma": "house", "translation": "ev" },
+    { "lemma": "school", "translation": "okul" },
+    { "lemma": "book", "translation": "kitap" },
+    { "lemma": "pen", "translation": "kalem" },
+    { "lemma": "table", "translation": "masa" },
+    { "lemma": "chair", "translation": "sandalye" },
+    { "lemma": "door", "translation": "kapi" },
+    { "lemma": "window", "translation": "pencere" },
+    { "lemma": "mother", "translation": "anne" },
+    { "lemma": "father", "translation": "baba" },
+    { "lemma": "brother", "translation": "erkek kardes" },
+    { "lemma": "sister", "translation": "kiz kardes" },
+    { "lemma": "friend", "translation": "arkadas" },
+    { "lemma": "name", "translation": "isim" },
+    { "lemma": "day", "translation": "gun" },
+    { "lemma": "night", "translation": "gece" },
+    { "lemma": "today", "translation": "bugun" },
+    { "lemma": "tomorrow", "translation": "yarin" },
+    { "lemma": "go", "translation": "gitmek" },
+    { "lemma": "come", "translation": "gelmek" }
+  ]
+}

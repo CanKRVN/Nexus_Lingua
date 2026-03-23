@@ -13,16 +13,32 @@
 project:
   name: nexus_lingua
   description: >
-    A local-first, cross-platform (Windows 11 + Android) vocabulary
-    learning application. Vocabulary is treated as a mathematically
-    modeled dynamic dataset. The SRS engine is FSRS-4.5. The UI is
-    Cyber-Minimalist. All design, architecture, and logic decisions
-    must align with the Nexus Lingua PRD v1.0.
+    A local-first, cross-platform vocabulary learning application
+    targeting Web (primary for v1.0), Windows 11, and Android.
+    Vocabulary is treated as a mathematically modeled dynamic dataset.
+    The SRS engine is FSRS-4.5. The UI is Cyber-Minimalist. The web
+    build must be fully usable, responsive, and verified on major
+    browsers. All design, architecture, and logic decisions must align
+    with the Nexus Lingua PRD v1.0.
   language: Dart
   framework: Flutter
-  platforms:
+  platform_priority_v1:
+    - web
     - windows
     - android
+  platforms:
+    - web
+    - windows
+    - android
+  web_browser_qa_v1:
+    required:
+      - Google Chrome (desktop + mobile as applicable)
+      - Microsoft Edge (Chromium)
+      - Apple Safari (desktop and/or iOS — match Flutter web support matrix)
+    rule: >
+      Layouts must adapt from single-column (narrow) to multi-panel
+      (wide) using breakpoints — no fixed desktop-only widths. Avoid
+      dart:io in libraries compiled for web.
 
 
 # ────────────────────────────────────────────────────────────
@@ -41,6 +57,7 @@ design_system:
     surface_glass:        "rgba(255,255,255,0.05)"  # Glassmorphic card fronts
 
     # Neon accent palette
+    # Canonical implementation: [NexusPaletteDark.primary] / ColorScheme.primary (#00BCD4).
     accent_cyan:          "#00BCD4"   # Borders, masculine gender, interactive elements
     accent_magenta:       "#E91E8C"   # Feminine gender, warning states
     accent_green:         "#00E676"   # Neuter gender, success states
@@ -63,7 +80,7 @@ design_system:
   gender_color_function:
     # f(gender) -> border color. Applied to BoxDecoration at render time.
     # Read the 'gender' key from card.metadata (φ map).
-    masculine:   "#00BCD4"  # accent_cyan
+    masculine:   "#00BCD4"  # accent_cyan — same hex as ColorScheme.primary
     feminine:    "#E91E8C"  # accent_magenta
     neuter:      "#00E676"  # accent_green
     none:        "#555555"  # border_neutral
@@ -93,6 +110,19 @@ design_system:
     No freeform positioning unless absolutely required.
     The FlashcardWidget uses a dynamic 2x2 or 3x2 grid that expands
     based on the number of active metadata fields in the LanguageProfile.
+
+  responsive_web:
+    rule: >
+      Root shells must use SafeArea where needed, allow vertical scrolling
+      on small viewports, and keep tap targets at least 48 logical pixels
+      for primary actions. Use LayoutBuilder / MediaQuery width for
+      breakpoints, not hard-coded pixel-perfect desktop-only layouts.
+    study_layout_breakpoint_width_lp: 840
+    description: >
+      At or above this width, use expanded (multi-panel + typist)
+      study shell when product logic selects desktop study mode; below
+      it, use compact single-column + 4-button rating row. Adjust in
+      one constant if UX testing requires.
 
 
 # ────────────────────────────────────────────────────────────
@@ -140,16 +170,38 @@ architecture:
         a single logical operation (e.g., updateCardAndLogReview).
       - Inject DatabaseHelper via constructor for testability.
 
-  # --- 3.3 PLATFORM GATING ---
+  # --- 3.2b BACKEND MAINTENANCE LOG (MANDATORY FOR AGENTS) ---
+  backend_maintenance_log:
+    file: docs/BACKEND_MAINTENANCE_LOG.md
+    rule: >
+      Whenever you change local persistence — DatabaseHelper schema or
+      migrations, backup/import JSON shape, sqflite web or native initialization,
+      CardRepository data contracts, or related platform backup code — you MUST
+      append a new dated section to docs/BACKEND_MAINTENANCE_LOG.md. Use a
+      markdown heading "## YYYY-MM-DD — short title" and include Diagnosis,
+      Actions taken, and Follow-ups. Do not delete or rewrite prior sections;
+      append only so other agents retain an audit trail.
+
+  # --- 3.3 STUDY MODE & PLATFORM GATING (WEB-SAFE) ---
   platform_channels:
     rule: >
-      Use `Platform.isWindows` and `Platform.isAndroid` (from dart:io)
-      to gate platform-specific behavior. Never use conditional imports
-      for this purpose.
-    desktop_mode:
+      Choose study interaction mode without breaking web compilation.
+      NEVER import `dart:io` or use `Platform.*` in code that must run
+      on web. For web and all targets, derive "desktop study" vs "compact
+      study" primarily from viewport width using
+      `MediaQuery.sizeOf(context).width` (or LayoutBuilder constraints)
+      against `design_system.responsive_web.study_layout_breakpoint_width_lp`.
+      Optional native refinement: on non-web builds only, you may also
+      treat `Platform.isAndroid` as compact (4-button) when the device
+      is phone-class — but wide Android tablets may use desktop study at
+      the breakpoint. Document the chosen rule in one place (e.g. a small
+      `StudyLayout` helper).
+    desktop_study_mode:
+      aliases: [typist_mode, expanded_study]
       evaluation: SimilarityEvaluator  # automated text scoring
       input: TextField with onSubmitted callback
-    mobile_mode:
+    compact_study_mode:
+      aliases: [mobile_mode, narrow_web]
       evaluation: 4-button manual rating row
       input: GestureDetector / tappable rating buttons
 
@@ -191,7 +243,7 @@ architecture:
         study/:           # Study session screen + controller
         deck_manager/:    # Card CRUD + Language Profile Manager
         dashboard/:       # Mastery Dashboard, heatmap, XP
-        sentence_decoder/ # Windows-only split-screen tokenizer
+        sentence_decoder/ # Wide-layout split-screen tokenizer (web + Windows)
       shared/:
         widgets/:  # FlashcardWidget, XPBar, MasteryBadge, RatingRow
         theme/:    # AppTheme, AppColors (color tokens as constants)
@@ -204,7 +256,7 @@ architecture:
 
 logic:
 
-  # --- 4.1 SIMILARITY EVALUATOR (Desktop Mode) ---
+  # --- 4.1 SIMILARITY EVALUATOR (Typist / wide study mode) ---
   similarity_evaluator:
     file: lib/core/evaluator/similarity_evaluator.dart
     class: SimilarityEvaluator
@@ -362,6 +414,14 @@ database:
   file_name: nexus_lingua.db
   schema_version: 1
 
+  web_note: >
+    Native mobile/desktop use `sqflite` as today. Flutter Web does not
+    use the same native SQLite binary; use the current community-supported
+    `sqflite`-compatible factory for web (e.g. WASM / IndexedDB-backed
+    SQLite) so `DatabaseHelper` keeps one schema and the same queries.
+    Any extra package required solely for web DB initialization is
+    allowed — note it in the PRD stack and commit message when added.
+
   tables:
     - language_profiles
     - word_cards
@@ -375,6 +435,8 @@ database:
       Call this in _initDb() immediately after opening the database.
     - Never perform raw SQL outside of DatabaseHelper.
     - Migration strategy: increment schema_version and handle in onUpgrade.
+    - After opening the database on web, run the same CRUD smoke checks
+      used on native (insert profile/card, fetch due, export JSON).
 
 
 # ────────────────────────────────────────────────────────────
@@ -480,7 +542,14 @@ cursor_directives:
     Do not add dependencies to pubspec.yaml that are not already
     specified in the PRD stack (sqflite, path, path_provider,
     confetti, window_manager) without flagging it to the developer
-    first and explaining the rationale.
+    first and explaining the rationale. Exception: packages required
+    for SQLite-on-web parity (see database.web_note) are expected for
+    v1.0 web — add them with a one-line rationale in the PR.
+  - >
+    For web builds, verify UI and study flows manually in Chrome, Edge,
+    and Safari at multiple viewport widths (phone, tablet, desktop).
+    Fix overflow issues, keyboard overlap on mobile web, and Safari-specific
+    layout glitches before tagging a v1.0 web release.
   - >
     v1.0 is strictly text-based. Do not generate any image loading,
     audio playback, or media handling code.

@@ -1,0 +1,64 @@
+# Publishes nexus_lingua/build/web to GitHub Pages (project site:
+# https://<owner>.github.io/<repo>/). Requires: Settings → Pages → Build: GitHub Actions.
+name: Deploy Web (GitHub Pages)
+
+on:
+  push:
+    branches: [V0.1, main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nexus_lingua
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      # sqflite_common_ffi_web does not bundle these; without them, web throws SqfliteFfiWebException.
+      - name: sqflite web binaries (wasm + shared worker)
+        run: dart run sqflite_common_ffi_web:setup
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test --concurrency=1
+
+      - name: Build web (release)
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: nexus_lingua/build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

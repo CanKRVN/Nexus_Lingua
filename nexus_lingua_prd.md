@@ -4,8 +4,9 @@
 | Field | Value |
 |---|---|
 | **Version** | v1.0 — Initial Release |
-| **Platform** | Windows 11 / Android |
-| **Stack** | Flutter (Dart) + SQLite + FSRS |
+| **Platform** | **Web (primary)** · Windows 11 · Android |
+| **Stack** | Flutter (Dart) + SQLite (+ web-compatible DB factory) + FSRS |
+| **Browser QA (v1.0)** | Google Chrome, Microsoft Edge (Chromium), Apple Safari |
 | **Author** | Lead Architect / Product Manager |
 | **Status** | Draft — For Development |
 
@@ -35,7 +36,7 @@
 
 Nexus Lingua is a local-first, cross-platform vocabulary learning application built for power users who treat language acquisition as a structured, data-driven discipline. Unlike conventional flashcard applications that apply a one-size-fits-all model, Nexus Lingua treats vocabulary as a mathematically modeled dynamic dataset — flexible enough to represent any human language's unique structural properties, yet rigorous enough to guarantee optimal retention through algorithmic scheduling.
 
-The application is designed and maintained by a single developer with a mathematics background, built in Flutter for simultaneous Windows 11 and Android deployment. The product's aesthetic identity is **Cyber-Minimalist**: obsidian backgrounds, neon cyan/magenta accents, gamified progress feedback, and shader-driven animations — visual language borrowed from the gamer world to create a study environment that feels alive, not clinical.
+The application is designed and maintained by a single developer with a mathematics background, built in Flutter for **Web (first shipping target for v1.0)**, Windows 11, and Android. The **web** build must be fully functional (persistent local data, study flows, CRUD), **responsive** across phone-, tablet-, and desktop-class viewports, and **manually verified** on **Chrome**, **Edge**, and **Safari**. Native apps follow in priority after the web experience is stable. The product's aesthetic identity is **Cyber-Minimalist**: obsidian backgrounds, neon cyan/magenta accents, gamified progress feedback, and shader-driven animations — visual language borrowed from the gamer world to create a study environment that feels alive, not clinical.
 
 ---
 
@@ -69,8 +70,10 @@ To be the definitive vocabulary engineering platform for serious language learne
 | FSRS scheduling accuracy | Matches reference impl. | Unit test against FSRS test vectors |
 | Levenshtein evaluator | Correct threshold mapping | Unit tests (>20 word samples) |
 | App launch time | < 2s cold start | Stopwatch on target devices |
-| SQLite query (1000 cards) | < 50ms | Profiling with sqflite_common |
-| Cross-platform parity | Feature-identical | Manual QA checklist |
+| SQLite query (1000 cards) | < 50ms | Profiling with sqflite_common (native); web: best-effort with web DB impl. |
+| Cross-platform parity | Feature-identical Web / Win / Android | Manual QA checklist (web first) |
+| Web responsiveness | No horizontal overflow; usable at 320–1920+ CSS px | Chrome, Edge, Safari + DevTools device modes |
+| Web browsers | No critical breakage | Smoke + study session on Chrome, Edge, Safari |
 
 ---
 
@@ -121,9 +124,9 @@ User ratings map to FSRS input buttons: **Again (1)**, **Hard (2)**, **Good (3)*
 
 ## 5. Testing & Evaluation Logic
 
-### 5.1 Desktop Mode — Similarity Evaluator
+### 5.1 Typist / Wide Study Mode — Similarity Evaluator
 
-On Windows, the app replaces the 4-button self-rating system with an automated text similarity evaluator. The user types their answer, and the system computes a normalized score against the target lemma.
+On **wide layouts** (native Windows app **or** web browser above the responsive breakpoint — see §7.8), the app uses an automated text **similarity evaluator** instead of the 4-button self-rating row. The user types their answer, and the system computes a normalized score against the target lemma.
 
 #### 5.1.1 Similarity Ratio Formula
 
@@ -155,9 +158,9 @@ The `SimilarityEvaluator` class must be implemented in Dart with the following r
 - `mapToFSRS(double ratio): int` — Returns 1, 2, 3, or 4 based on the threshold table above.
 - `evaluate(String userInput, WordCard card): EvaluationResult` — Full pipeline: reads `caseSensitive` from `card.φ`, computes ratio, returns structured result with ratio, label, and FSRS button.
 
-### 5.2 Mobile Mode — Confidence-Based Rating
+### 5.2 Compact Study Mode — Confidence-Based Rating
 
-On Android, the app presents a standard 4-button Anki-style self-rating interface. The buttons are gamified with customizable display modes, configurable in Settings:
+On **Android** and on **narrow web** viewports (and whenever the shell selects compact study mode), the app presents a standard 4-button Anki-style self-rating interface. The buttons are gamified with customizable display modes, configurable in Settings:
 
 | FSRS Button | Default Label | Symbol | Color |
 |---|---|---|---|
@@ -173,6 +176,8 @@ On Android, the app presents a standard 4-button Anki-style self-rating interfac
 ### 6.1 Schema Design Philosophy
 
 The database uses a **hybrid schema**: fixed columns for universal card properties, and a single `TEXT` column containing JSON for all language-specific metadata. This approach avoids schema migrations when new language features are introduced, while maintaining the performance benefits of SQLite for core queries.
+
+**Web:** Flutter Web does not embed native SQLite the same way as mobile/desktop; v1.0 uses a **supported `sqflite`-compatible initialization path for web** (e.g. WASM / browser-backed storage) so the **same SQL schema, `DatabaseHelper` API, and queries** apply on all platforms. Persisted data must survive normal reloads within browser storage policies.
 
 ### 6.2 SQLite Table Definitions
 
@@ -213,7 +218,7 @@ CREATE TABLE review_log (
   card_id       INTEGER NOT NULL REFERENCES word_cards(id),
   rated_at      INTEGER NOT NULL,  -- Unix timestamp
   rating        INTEGER NOT NULL,  -- 1=Again, 2=Hard, 3=Good, 4=Easy
-  similarity_r  REAL,              -- Desktop mode only; NULL on mobile
+  similarity_r  REAL,              -- Typist/wide mode only; NULL in compact mode
   s_before      REAL NOT NULL,
   s_after       REAL NOT NULL
 );
@@ -316,20 +321,22 @@ where `S_max` is a user-configurable constant (default: 365 days). The bar color
 - **Glitch Effect:** On-miss shader-distortion flicker for 300ms.
 - **Shader Glow Pulse:** Neon border brightness is a function of Stability S. Words with S > 30 days pulse with a live glow. New cards (S < 1) have a dim, static border.
 
-### 7.5 Windows 11 — Standard Mode Layout
+### 7.5 Wide Layout — Multi-Panel Dashboard (Web + Windows 11)
 
-A full-dashboard view with three panels:
+When viewport width is at or above the **wide breakpoint** (default **840 logical pixels**, aligned with project rules), use a full-dashboard view with three panels:
 
 - **Left Panel:** Navigation rail — Deck list by Language Profile, Today's Due count badge, Settings access.
-- **Center Panel:** Primary study area — Flashcard widget with text input for Desktop Mode evaluation.
+- **Center Panel:** Primary study area — Flashcard widget with text input for **Typist / SimilarityEvaluator** flow.
 - **Right Panel:** Card inspector — Full metadata view, edit controls, review history graph.
 
-### 7.6 Android — Mobile Mode Layout
+This layout applies to **desktop-class web** (Chrome, Edge, Safari) and to the **Windows 11** app at sufficient window width.
 
-A single-column view:
+### 7.6 Compact Layout — Single Column (Android + Narrow Web)
+
+Below the wide breakpoint, or on phone-first native Android, use a single-column view:
 
 - **Top:** Card counter (e.g., `12 / 47 remaining`).
-- **Center:** Flashcard widget (tap to flip, swipe-compatible).
+- **Center:** Flashcard widget (tap to flip; avoid overflow — scroll if needed on small web viewports).
 - **Bottom:** 4-button rating row in the configured display style (label, symbol, or color-only).
 
 ### 7.7 Mastery Dashboard
@@ -340,6 +347,14 @@ A dedicated screen showing:
 - **Total XP:** Aggregate of all card Stability values (ΣS), displayed as a global score.
 - **Per-language breakdown:** Cards by badge tier per active Language Profile.
 - **Streak counter:** Consecutive days with at least one review.
+
+### 7.8 Responsive Web & Browser Support (v1.0)
+
+- **Targets:** **Google Chrome**, **Microsoft Edge** (Chromium), and **Apple Safari** (desktop and/or iOS per Flutter web support for the chosen SDK).
+- **Responsive:** Layouts must adapt smoothly from narrow (single column, large touch targets) to wide (multi-panel). Use `LayoutBuilder` / `MediaQuery` breakpoints — no reliance on fixed pixel desktop widths.
+- **Alive:** Maintain Cyber-Minimalist motion where performant (confetti, glitch, glow); prefer `CustomPainter` / standard Flutter animations on web; defer heavy GLSL to v1.1+.
+- **Keyboard / input:** On web typist mode, ensure focus management and Enter-to-submit (or explicit submit) work; avoid obscuring the input with on-screen chrome on mobile browsers.
+- **QA order for v1.0:** Web (three browsers, multiple widths) → Windows 11 → Android.
 
 ---
 
@@ -359,16 +374,16 @@ Orchestrates a study session in sequence:
 
 1. Load due cards from `DatabaseHelper.getDueCards()`.
 2. Present card (front = lemma; back = translation + metadata).
-3. **On desktop:** Accept text input, run `SimilarityEvaluator`, display result + auto-rating.
-4. **On mobile:** Display 4-button rating row; await user selection.
+3. **Typist / wide study mode:** Accept text input, run `SimilarityEvaluator`, display result + auto-rating.
+4. **Compact study mode:** Display 4-button rating row; await user selection.
 5. Call FSRS logic with rating; compute new S, D, R, next `due_date`.
 6. Write updated card to DB. Append `review_log` entry.
 7. Trigger visual feedback (confetti, glitch, glow update).
 8. Advance to next card.
 
-### 8.4 Sentence Decoder (Windows Only)
+### 8.4 Sentence Decoder (Wide Layout — Web + Windows)
 
-A split-screen view:
+When the shell is in **wide layout** (§7.5), provide a split-screen view (including **desktop web** in Chrome, Edge, and Safari):
 
 - **Left pane:** Multi-line text input for pasting source-language text.
 - **Right pane:** Tokenized word list. Tokenization uses Dart-native regex splitting on whitespace/punctuation for MVP.
@@ -393,8 +408,8 @@ A split-screen view:
 
 | Layer | Technology | Rationale |
 |---|---|---|
-| Frontend / UI | Flutter (Dart) | Single codebase for Win11 + Android; `CustomPainter` for shader effects |
-| Local Database | SQLite via `sqflite` | Embedded, zero-config, ACID-compliant; standard for mobile offline-first |
+| Frontend / UI | Flutter (Dart) | Single codebase for **Web (primary v1.0)**, Win11, Android; responsive breakpoints; `CustomPainter` for MVP effects |
+| Local Database | SQLite via `sqflite` (+ web factory) | Same schema everywhere; web uses a supported browser-backed SQLite init path |
 | SRS Algorithm | FSRS (custom Dart impl.) | State-of-the-art scheduling; superior to SM-2 for retention |
 | String Evaluation | Levenshtein (Dart) | Native Dart; no dependencies; unit-testable |
 | Text Tokenization | Dart Regex (MVP) | Zero dependencies; sufficient for MVP; upgradable to NLP package |
@@ -406,7 +421,7 @@ A split-screen view:
 
 - **Singleton Pattern:** `DatabaseHelper` is instantiated exactly once. All DB calls go through it.
 - **Repository Pattern:** A `CardRepository` class wraps `DatabaseHelper`, providing a clean async API to the UI layer. UI never calls `DatabaseHelper` directly.
-- **Platform Channels:** Platform detection (`Platform.isWindows` / `Platform.isAndroid`) gates the study mode — Desktop evaluator vs. mobile rating buttons.
+- **Study mode selection (web-safe):** Gate typist vs compact study by **viewport width** (and optional native Android compact rule). Do **not** use `dart:io` `Platform` in code that compiles for web — use `MediaQuery` / `LayoutBuilder` and `kIsWeb` from `flutter/foundation.dart` as needed.
 - **Stateless Widgets First:** Study session state managed via a `StatefulWidget` session controller; all child card widgets are stateless.
 - **JSON Metadata Invariant:** The `metadata` column is never parsed at the SQL layer. All JSON encode/decode happens in Dart. SQL only stores and retrieves opaque text.
 
@@ -416,12 +431,12 @@ A split-screen view:
 
 | Phase | Name | Deliverables | Priority |
 |---|---|---|---|
-| Phase 1 | Foundation | Flutter project init (Cursor), SQLite schema, `DatabaseHelper` Singleton, `WordCard` model with `toMap()`/`fromMap()`, `LanguageProfile` model | Critical |
-| Phase 2 | Cyber UI | Theme system (colors, fonts), `FlashcardWidget` with dynamic grid, gender-based border coloring, XP bar, badge system | Critical |
+| Phase 1 | Foundation | Flutter project init (Cursor), web + native targets enabled, SQLite schema, web DB init, `DatabaseHelper` Singleton, `WordCard` / `LanguageProfile` models | Critical |
+| Phase 2 | Cyber UI | Theme system (colors, fonts), responsive shell (wide vs compact), `FlashcardWidget` with dynamic grid, gender borders, XP bar, badges | Critical |
 | Phase 3 | SRS Engine | FSRS Dart class (S, D, R update functions), study session controller, `review_log` write, due card query | Critical |
-| Phase 4 | Evaluation & Input | `SimilarityEvaluator` (Levenshtein + threshold mapping), desktop text input flow, mobile 4-button flow, particle effects | Critical |
-| Phase 5 | Text Processing | Sentence Decoder screen, regex tokenizer, DB lookup highlight, one-click card creation from token | High |
-| Phase 6 | Packaging | `.exe` build for Windows 11, `.apk` build for Android, cross-platform QA checklist | High |
+| Phase 4 | Evaluation & Input | `SimilarityEvaluator`, typist text flow (web + wide native), compact 4-button flow, particle effects | Critical |
+| Phase 5 | Text Processing | Sentence Decoder on wide layout (web + Windows), regex tokenizer, DB highlight, one-click card from token | High |
+| Phase 6 | Packaging | **`flutter build web`** + hosting notes; browser QA (Chrome, Edge, Safari); then `.exe` (Win11) and `.apk` (Android) | High |
 | v1.2 — Later | Overlay Mode | `window_manager` always-on-top mini-window for Windows | Deferred |
 | v1.2 / v2.0 — Later | Cloud Sync | Supabase integration, auth flow, JSON backup, sync toggle in Settings | Deferred |
 
@@ -436,9 +451,11 @@ Execute these prompts in Cursor in order, one at a time.
 ### Prompt 1 — Project & Dependency Scaffold
 
 ```
-Create a new Flutter project called "nexus_lingua". Configure pubspec.yaml with the
-following dependencies: sqflite (latest), path (latest), path_provider (latest),
-confetti (latest). Create the following directory structure under lib/:
+Create a new Flutter project called "nexus_lingua". Enable Web, Windows, and Android.
+Configure pubspec.yaml with: sqflite (latest), path (latest), path_provider (latest),
+confetti (latest), plus any current, documented sqflite-compatible package needed for
+SQLite on Flutter Web (add with a one-line rationale). Create the following directory
+structure under lib/:
   core/database/
   core/models/
   core/srs/
@@ -451,7 +468,10 @@ confetti (latest). Create the following directory structure under lib/:
   shared/theme/
 Do not generate any UI yet. Only scaffold the folders and an empty main.dart with a
 placeholder MaterialApp.
-Use LayoutBuilder or a custom ResponsiveLayout widget to switch between the 3-panel Windows dashboard and the single-column Android view based on MediaQuery.of(context).size.width.
+Use LayoutBuilder or a custom ResponsiveLayout widget: at width >= 840 logical pixels,
+use the 3-panel wide dashboard shell; below that, single-column compact shell.
+Study mode must not import dart:io Platform for web compatibility — use breakpoints
+(and kIsWeb only if needed). Prioritize `flutter run -d chrome` for early verification.
 ```
 
 ---
@@ -480,9 +500,10 @@ for metadata). Both classes must be null-safe.
 ```
 In lib/core/database/database_helper.dart, implement a Singleton class DatabaseHelper.
 It must use a private constructor and a static _instance field. Implement an async
-_initDb() method that opens a SQLite database called 'nexus_lingua.db' and runs
-onCreate to execute the three CREATE TABLE statements for language_profiles, word_cards,
-and review_log as specified in the PRD schema. Implement the following async methods:
+_initDb() method that opens a SQLite database called 'nexus_lingua.db' (using the
+correct factory on Web vs native) and runs onCreate to execute the three CREATE TABLE
+statements for language_profiles, word_cards, and review_log as specified in the PRD schema.
+Implement the following async methods:
 insertProfile, insertCard, getCardsForProfile, getDueCards, updateCardAfterReview,
 insertReviewLog, exportToJson. All methods must use the singleton database reference
 via getDatabase().
@@ -571,6 +592,7 @@ Styling: Apply the "Cyber-Minimalist" theme: Obsidian background, glassmorphic s
 | OI-03 | Shader implementation: Flutter fragment shaders (GLSL) vs. `CustomPainter` animation? | Open | `CustomPainter` for MVP (no tooling overhead). GLSL shaders in v1.1 iteration. |
 | OI-04 | Heatmap widget: build custom or use `fl_chart` / `calendar_view` package? | Open | Evaluate `calendar_view` package first. Custom fallback if license or style conflicts. |
 | OI-05 | S_max constant for XP bar: hardcoded or settings-configurable? | Open | Configurable in Settings, default 365 days. |
+| OI-06 | Flutter Web SQLite: which supported `sqflite`-compatible factory/package for v1.0? | Open | Pick current maintained option (WASM/IndexedDB); document in pubspec + README; verify Chrome, Edge, Safari. |
 
 ---
 
@@ -590,6 +612,8 @@ Styling: Apply the "Cyber-Minimalist" theme: Obsidian background, glassmorphic s
 | **Similarity Ratio (R)** | Normalized Levenshtein score in [0, 1]. 1.0 = perfect match. |
 | **XP Bar** | A linear progress bar representing normalized Stability S/S_max for a word card. |
 | **Mastery Badge** | A tier label (Novice → Legend) assigned based on Stability thresholds. |
+| **Typist / wide study mode** | Layout-wide study flow: typed answer + `SimilarityEvaluator` → FSRS rating. |
+| **Compact study mode** | Narrow layout or compact native: user picks Again/Hard/Good/Easy manually. |
 
 ---
 
