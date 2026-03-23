@@ -5,7 +5,10 @@ import '../../core/models/language_profile.dart';
 import '../../core/models/word_card.dart';
 import '../../core/text/sentence_tokenizer.dart';
 import '../../shared/layout/nexus_breakpoints.dart';
+import '../../shared/layout/nexus_page_scaffold.dart';
+import '../../shared/widgets/nexus_glow_filled_button.dart';
 import '../../shared/theme/app_theme.dart';
+import '../../shared/theme/nexus_surfaces.dart';
 
 /// Split view: paste text → token list; tap token to add card (PRD §8.4).
 ///
@@ -58,7 +61,10 @@ class _SentenceDecoderScreenState extends State<SentenceDecoderScreen> {
 
   Map<String, dynamic> _defaultMetadata() {
     final m = <String, dynamic>{};
-    for (final f in widget.profile.features) {
+    for (final f in {
+      ...widget.profile.features,
+      ...widget.profile.featuresKnown,
+    }) {
       if (f == 'case_sensitive') {
         m[f] = false;
       } else {
@@ -129,7 +135,7 @@ class _SentenceDecoderScreenState extends State<SentenceDecoderScreen> {
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: 8),
-                  FilledButton(
+                  NexusGlowFilledButton(
                     onPressed: () {
                       final t = ctrl.text.trim();
                       if (t.isEmpty) return;
@@ -189,15 +195,12 @@ class _SentenceDecoderScreenState extends State<SentenceDecoderScreen> {
   @override
   Widget build(BuildContext context) {
     final tokens = SentenceTokenizer.tokenize(_textController.text);
-    final wide =
-        MediaQuery.sizeOf(context).width >= NexusBreakpoints.wideLayoutMinWidthLp;
+    final wide = NexusBreakpoints.isWideLayout(
+      MediaQuery.sizeOf(context).width,
+    );
 
     final inputPane = DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.borderNeutral),
-        borderRadius: BorderRadius.circular(8),
-        color: AppColors.surfaceGlass,
-      ),
+      decoration: nexusPanelDecoration(context, borderRadius: 14),
       child: TextField(
         controller: _textController,
         maxLines: wide ? null : 8,
@@ -215,11 +218,7 @@ class _SentenceDecoderScreenState extends State<SentenceDecoderScreen> {
     );
 
     final tokenPane = DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.borderNeutral),
-        borderRadius: BorderRadius.circular(8),
-        color: AppColors.surfaceGlass,
-      ),
+      decoration: nexusPanelDecoration(context, borderRadius: 14),
       child: tokens.isEmpty
           ? const Center(
               child: Text(
@@ -244,13 +243,14 @@ class _SentenceDecoderScreenState extends State<SentenceDecoderScreen> {
             ),
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sentence decoder'),
-      ),
+    return NexusPageScaffold(
+      navigatorContext: context,
+      repository: widget.repository,
+      activeProfile: widget.profile,
+      title: const Text('Sentence decoder'),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: wide
               ? Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,

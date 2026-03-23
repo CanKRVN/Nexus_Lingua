@@ -58,5 +58,18 @@ void main() {
       expect(twice.stability, greaterThan(0));
       expect(twice.difficulty, inInclusiveRange(1.0, 10.0));
     });
+
+    test('previewDueDates matches schedule for each rating', () {
+      const engine = FSRSEngine();
+      final card = fresh();
+      final previews = engine.previewDueDates(card, now);
+      expect(previews, hasLength(4));
+      for (var r = 1; r <= 4; r++) {
+        expect(
+          previews[r - 1],
+          engine.schedule(card, r, now).dueDate,
+        );
+      }
+    });
   });
 }

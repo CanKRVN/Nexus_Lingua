@@ -60,15 +60,16 @@ Scaffold matches PRD: `core/database`, `core/models`, `core/srs`, `core/evaluato
 
 ### 3.4 Database (`lib/core/database/`)
 
-- **`database_helper.dart`** — **Singleton** (`DatabaseHelper()`). Owns the single `Database` instance, schema version **1**, `PRAGMA foreign_keys = ON` + **`busy_timeout`** after open.  
+- **`database_helper.dart`** — **Singleton** (`DatabaseHelper()`). Owns the single `Database` instance, schema version **3**, `PRAGMA foreign_keys = ON` + **`busy_timeout`** after open.  
   - **Native:** DB file under app documents dir via `path_provider`  
   - **Web (`kIsWeb`):** path from `getDatabasesPath()` after platform factory is set (avoids `path_provider` failures on web)  
   - **Tests:** `DatabaseHelper.debugDatabaseAbsolutePath` forces a temp file path; call `closeDatabaseForTesting()` between tests  
 - **`sqflite_platform.dart`** — Conditional import: stub vs **`sqflite_platform_web.dart`** (`databaseFactory = databaseFactoryFfiWeb`)  
-- **Schema tables:** `language_profiles`, `word_cards`, `review_log` — as in PRD §6  
-- **API surface:** `insertProfile`, `insertCard`, `getCardsForProfile`, **`getLemmaSetForProfile`**, `getDueCards`, `updateCardAfterReview`, `insertReviewLog`, `exportToJson`, `seedDatabase`, `countProfiles`, etc.
+- **Schema tables:** `language_profiles`, `word_cards`, `review_log`, **`app_preferences`** (key/value string prefs, e.g. theme mode via **`ThemeService`**) — PRD §6 plus v2/v3 migrations in code.  
+- **Backup JSON (`exportToJson` / import):** Export includes **`language_profiles`**, **`word_cards`**, **`review_log`**, and **`app_preferences`**. **`importProfilesAndCardsFromJson`** merges **profiles + cards** and, when the key is present, **upserts `app_preferences`** by primary key; it does **not** import **`review_log`** (append-only history). Returns **`({profiles, cards, preferences})`**. Older backup files without `app_preferences` still import.  
+- **API surface:** `insertProfile`, `insertCard`, `getCardsForProfile`, **`getLemmaSetForProfile`**, **`getFirstProfile`**, **`getCardsForFirstProfile`**, `getDueCards`, `updateCardAfterReview`, `insertReviewLog`, **`getAppPreference` / `setAppPreference`**, `exportToJson`, `importProfilesAndCardsFromJson`, `seedDatabase`, `countProfiles`, etc.
 
-**Critical invariant:** **UI and features must not import or call `DatabaseHelper` directly.** Use **`CardRepository`** (see §4).
+**Critical invariant:** **UI and features must not import or call `DatabaseHelper` directly.** Use **`CardRepository`** (see §4). **Exception:** small core services (e.g. **`ThemeService`**) may use **`DatabaseHelper`** with constructor injection for tests — not widgets.
 
 ### 3.5 Repository (`lib/core/database/card_repository.dart`)
 
@@ -78,7 +79,8 @@ Scaffold matches PRD: `core/database`, `core/models`, `core/srs`, `core/evaluato
 - **`loadLemmaSetForProfile(profileId)`** — lemma set for underline (wraps **`getLemmaSetForProfile`**)  
 - **`commitReview({ updatedCard, rating, stabilityBefore, similarityR })`** — **must** persist card row then append **`review_log`**; `updatedCard.id` required; **`similarityR`** set in typist mode (ratio), `null` in compact-only flow  
 - **`bootstrapPersistence()`** — opens DB, seeds German demo deck if empty  
-- **`firstProfile` / `loadFirstProfileCards`** — prototype helpers for `main.dart`
+- **`firstProfile` / `loadFirstProfileCards`** — delegate to **`DatabaseHelper.getFirstProfile` / `getCardsForFirstProfile`** (no ad-hoc `getDatabase` queries in the repository)  
+- **`importBackupProfilesAndCards`** — wraps **`importProfilesAndCardsFromJson`**; returns **`({profiles, cards, preferences})`**
 
 ---
 
@@ -160,7 +162,7 @@ Scaffold matches PRD: `core/database`, `core/models`, `core/srs`, `core/evaluato
 
 | File | Purpose |
 |------|---------|
-| `test/database_helper_test.dart` | Temp DB; round-trip; **`getLemmaSetForProfile`** + **`insertCard`** via repository; `exportToJson`; **`commitReview`** + **`review_log`** / **`similarity_r`**; **`StudySessionScreen`** widget tests (compact Hit + wide typist); timed **`pump`** (no infinite **`pumpAndSettle`** with spinner) |
+| `test/database_helper_test.dart` | Temp DB; round-trip; **`getLemmaSetForProfile`** + **`insertCard`** via repository; **`exportToJson`** (incl. **`app_preferences`**); **`importProfilesAndCardsFromJson`** prefs restore; **`commitReview`** + **`review_log`** / **`similarity_r`**; **`StudySessionScreen`** widget tests (compact Hit + wide typist); timed **`pump`** (no infinite **`pumpAndSettle`** with spinner) |
 | `test/sentence_tokenizer_test.dart` | Tokenizer punctuation, Unicode, apostrophe, order |
 | `test/fsrs_engine_test.dart` | FSRS scheduling behavior |
 | `test/similarity_evaluator_test.dart` | Levenshtein / thresholds |
@@ -338,7 +340,7 @@ PRD §10 ends at **Phase 6**. Use **Phase 7** here as the **next engineering mil
 1. **CI** — **`.github/workflows/flutter_ci.yml`** runs **`flutter analyze`** + **`flutter test --concurrency=1`** on **ubuntu-latest** (canonical gate; avoids Windows **`sqlite3.dll`** / **`flutter_tester`** quirks). Optionally add **`flutter build web --release`** on main.  
 2. **Deck & profile management (PRD §8.1–8.2)** — Replace prototype “first profile only” in `main.dart` with real **Language Profile** CRUD and **Card** CRUD / JSON import.  
 3. **Mastery dashboard (PRD §7.7)** — Heatmap, ΣS “XP”, per-language breakdown, streak.  
-4. **Settings (PRD §8.5)** — Rating style, `S_max`, shader toggle, **export JSON** wired to `DatabaseHelper.exportToJson`.  
+4. **Settings (PRD §8.5)** — Rating style, `S_max`, shader toggle, **export JSON** via **`CardRepository.exportBackupJson`** / **`DatabaseHelper.exportToJson`** (full payload includes **`app_preferences`** for theme and future keyed prefs).  
 5. **v1.1+** — GLSL / glow (OI-03); **v1.2** — `window_manager` overlay (PRD deferred), Supabase sync (PRD deferred).
 
 ### 13.2 Constraints unchanged
@@ -349,7 +351,8 @@ All **§6** rules still apply: **singleton `DatabaseHelper`**, **`CardRepository
 
 - Bump **§2** roadmap table and **§11** implementation log.  
 - Add **`build/web`** / CI links to **§12.6** when known.  
-- If `README.md` is expanded, keep it aligned with PRD **browser list** and **project root** `nexus_lingua/`.
+- If `README.md` is expanded, keep it aligned with PRD **browser list** and **project root** `nexus_lingua/`.  
+- **Persistence / backup changes:** append a **dated section** to **`docs/BACKEND_MAINTENANCE_LOG.md`** (see **`.cursorrules`** — agents are required to maintain this log).
 
 ---
 

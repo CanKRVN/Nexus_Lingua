@@ -1,3 +1,4 @@
+import '../models/study_direction.dart';
 import '../models/word_card.dart';
 import 'evaluation_result.dart';
 
@@ -61,10 +62,10 @@ class SimilarityEvaluator {
     return 1;
   }
 
-  /// Full pipeline using `card.metadata['case_sensitive']`.
+  /// Full pipeline: compare [userInput] to [card.targetSurface] (`case_sensitive` in φ).
   EvaluationResult evaluate(String userInput, WordCard card) {
     final caseSensitive = card.metadata['case_sensitive'] == true;
-    final ratio = computeRatio(userInput, card.lemma, caseSensitive);
+    final ratio = computeRatio(userInput, card.targetSurface, caseSensitive);
     final fsrsRating = mapToFSRS(ratio);
     final label = _labelFor(fsrsRating);
     return EvaluationResult(
@@ -72,6 +73,34 @@ class SimilarityEvaluator {
       fsrsRating: fsrsRating,
       label: label,
     );
+  }
+
+  /// Typist recall for [direction]: compares to the **expected typed answer**.
+  ///
+  /// [StudyDirection.targetToKnown] → [WordCard.translation].
+  /// [StudyDirection.knownToTarget] → [WordCard.targetSurface].
+  EvaluationResult evaluateTypistRecall(
+    String userInput,
+    WordCard card,
+    StudyDirection direction,
+  ) {
+    final caseSensitive = card.metadata['case_sensitive'] == true;
+    final expected = direction == StudyDirection.knownToTarget
+        ? card.targetSurface
+        : card.translation;
+    final ratio = computeRatio(userInput, expected, caseSensitive);
+    final fsrsRating = mapToFSRS(ratio);
+    final label = _labelFor(fsrsRating);
+    return EvaluationResult(
+      ratio: ratio,
+      fsrsRating: fsrsRating,
+      label: label,
+    );
+  }
+
+  /// Same as [evaluateTypistRecall] with [StudyDirection.targetToKnown].
+  EvaluationResult evaluateTranslationRecall(String userInput, WordCard card) {
+    return evaluateTypistRecall(userInput, card, StudyDirection.targetToKnown);
   }
 
   static String _labelFor(int fsrsRating) {

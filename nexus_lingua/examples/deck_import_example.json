@@ -1,0 +1,31 @@
+{
+  "deck": {
+    "language": "German",
+    "known_language": "English"
+  },
+  "cards": [
+    {
+      "lemma": "Bäckerei",
+      "translation": "bakery",
+      "article": "die",
+      "gender": "feminine",
+      "plural": "Bäckereien",
+      "case_sensitive": false
+    },
+    {
+      "lemma": "Haus",
+      "translation": "house",
+      "article": "das",
+      "gender": "neuter",
+      "plural": "Häuser",
+      "case_sensitive": false
+    },
+    {
+      "lemma": "gehen",
+      "translation": "to go",
+      "conjugation": "geht, ging, ist gegangen",
+      "tense": "infinitive",
+      "case_sensitive": false
+    }
+  ]
+}

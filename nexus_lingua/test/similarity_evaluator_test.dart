@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_lingua/core/evaluator/similarity_evaluator.dart';
+import 'package:nexus_lingua/core/models/study_direction.dart';
 import 'package:nexus_lingua/core/models/word_card.dart';
 
 void main() {
@@ -81,6 +82,73 @@ void main() {
       final res = ev.evaluate('hello', card(lemma: 'Hello'));
       expect(res.fsrsRating, 4);
       expect(res.label, 'Crit!');
+    });
+
+    test('evaluateTranslationRecall scores against translation', () {
+      final w = WordCard(
+        profileId: 1,
+        lemma: 'das Haus',
+        translation: 'the house',
+        dueDate: base,
+        createdAt: base,
+        metadata: const {'case_sensitive': false},
+      );
+      final res = ev.evaluateTranslationRecall('The House', w);
+      expect(res.fsrsRating, 4);
+      expect(res.ratio, 1.0);
+    });
+
+    test('evaluate compares to targetSurface (article + lemma)', () {
+      final w = WordCard(
+        profileId: 1,
+        lemma: 'Buch',
+        translation: 'book',
+        dueDate: base,
+        createdAt: base,
+        metadata: const {
+          'article': 'das',
+          'case_sensitive': false,
+        },
+      );
+      expect(w.targetSurface, 'das Buch');
+      expect(ev.evaluate('das buch', w).fsrsRating, 4);
+    });
+
+    test('evaluateTypistRecall knownToTarget expects targetSurface', () {
+      final w = WordCard(
+        profileId: 1,
+        lemma: 'Buch',
+        translation: 'the book',
+        dueDate: base,
+        createdAt: base,
+        metadata: const {
+          'article': 'das',
+          'case_sensitive': false,
+        },
+      );
+      final res = ev.evaluateTypistRecall(
+        'das buch',
+        w,
+        StudyDirection.knownToTarget,
+      );
+      expect(res.fsrsRating, 4);
+    });
+
+    test('evaluateTypistRecall targetToKnown expects translation', () {
+      final w = WordCard(
+        profileId: 1,
+        lemma: 'Buch',
+        translation: 'the book',
+        dueDate: base,
+        createdAt: base,
+        metadata: const {'article': 'das', 'case_sensitive': false},
+      );
+      final res = ev.evaluateTypistRecall(
+        'The Book',
+        w,
+        StudyDirection.targetToKnown,
+      );
+      expect(res.fsrsRating, 4);
     });
   });
 }
