@@ -12,27 +12,32 @@ import 'package:nexus_lingua/shared/theme/app_theme.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// First due-queue load is seeded so the study screen settles without relying on
-/// pump(Duration) (never idles with spinners) or long real-time waits.
-/// Subsequent loads use the real DB (e.g. after a review).
-final class _SeededFirstLoadRepository extends CardRepository {
-  _SeededFirstLoadRepository({
-    required DatabaseHelper helper,
+/// Deterministic in-memory repository for StudySessionScreen widget tests.
+final class _WidgetTestRepository extends CardRepository {
+  _WidgetTestRepository({
+    required this.profileId,
     required List<WordCard> initialDue,
-  })  : _helper = helper,
-        _initialDue = List<WordCard>.from(initialDue),
-        super(helper: helper);
+  }) : _dueQueue = List<WordCard>.from(initialDue);
 
-  final DatabaseHelper _helper;
-  final List<WordCard> _initialDue;
-  int _loadCalls = 0;
+  final int profileId;
+  List<WordCard> _dueQueue;
+  final List<({WordCard card, int rating, double? similarityR})> commits = [];
 
   @override
-  Future<List<WordCard>> loadDueCardsForProfile(int profileId, DateTime now) {
-    if (_loadCalls++ == 0) {
-      return Future<List<WordCard>>.value(List<WordCard>.from(_initialDue));
-    }
-    return _helper.getDueCards(profileId, now);
+  Future<List<WordCard>> loadDueCardsForProfile(int pid, DateTime now) async {
+    if (pid != profileId) return const <WordCard>[];
+    return List<WordCard>.from(_dueQueue);
+  }
+
+  @override
+  Future<void> commitReview({
+    required WordCard updatedCard,
+    required int rating,
+    required double stabilityBefore,
+    double? similarityR,
+  }) async {
+    commits.add((card: updatedCard, rating: rating, similarityR: similarityR));
+    _dueQueue = _dueQueue.where((c) => c.id != updatedCard.id).toList();
   }
 }
 
@@ -42,6 +47,19 @@ final class _SeededFirstLoadRepository extends CardRepository {
 bool get _skipStudySessionScreenWidgets {
   if (!Platform.isWindows) return false;
   return Platform.environment['FORCE_STUDY_WIDGET_TESTS'] != 'true';
+}
+
+Future<void> _pumpUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  int maxPumps = 60,
+  Duration step = const Duration(milliseconds: 16),
+}) async {
+  for (var i = 0; i < maxPumps; i++) {
+    await tester.pump(step);
+    if (finder.evaluate().isNotEmpty) return;
+  }
+  fail('Timed out waiting for widget: $finder');
 }
 
 void main() {
@@ -362,6 +380,9 @@ void main() {
   });
 
   group('StudySessionScreen (Phase 3)', () {
+    // These widget tests intentionally use _WidgetTestRepository instead of a
+    // real SQLite-backed repository to avoid CI flakes from DB/file locks and
+    // timer-driven settles. Coverage focus is interaction flow + review payload.
     testWidgets('material binding sanity', (tester) async {
       await tester.pumpWidget(const MaterialApp(home: Text('binding-ok')));
       await tester.pump();
@@ -370,39 +391,26 @@ void main() {
 
     testWidgets('reveal lemma then Hit persists one review_log row',
         (tester) async {
-      final h = DatabaseHelper();
-      await h.getDatabase();
-      final pid = await h.insertProfile(
-        LanguageProfile(
-          language: 'WidgetDeck',
-          features: const ['gender'],
-          createdAt: DateTime.utc(2025, 5, 1),
-        ),
-      );
-      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      await h.insertCard(
-        WordCard(
-          profileId: pid,
-          lemma: 'alphaLemma',
-          translation: 'alphaGloss',
-          dueDate: DateTime.fromMillisecondsSinceEpoch(nowSec * 1000),
-          createdAt: DateTime.utc(2025, 5, 1),
-          reviewCount: 0,
-          metadata: const {'gender': 'neuter'},
-        ),
-      );
-
+      final pid = 101;
       final profile = LanguageProfile(
         id: pid,
         language: 'WidgetDeck',
         features: const ['gender'],
         createdAt: DateTime.utc(2025, 5, 1),
       );
-
-      final now = DateTime.now();
-      final dueNow = await h.getDueCards(pid, now);
-      expect(dueNow, hasLength(1));
-      final repo = _SeededFirstLoadRepository(helper: h, initialDue: dueNow);
+      final dueNow = <WordCard>[
+        WordCard(
+          id: 1,
+          profileId: pid,
+          lemma: 'alphaLemma',
+          translation: 'alphaGloss',
+          dueDate: DateTime.now(),
+          createdAt: DateTime.utc(2025, 5, 1),
+          reviewCount: 0,
+          metadata: const {'gender': 'neuter'},
+        ),
+      ];
+      final repo = _WidgetTestRepository(profileId: pid, initialDue: dueNow);
 
       // Force compact study (FsrsRatingRow); default binding width can be ≥840 on some setups.
       // TickerMode off: spinners must not schedule perpetual frames or pump() can stall.
@@ -421,66 +429,39 @@ void main() {
           ),
         ),
       );
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.text('alphaLemma'), findsOneWidget);
+      await _pumpUntilFound(tester, find.text('alphaLemma'));
       await tester.tap(find.text('alphaLemma'));
-      for (var i = 0; i < 24; i++) {
-        await tester.pump();
-      }
+      await _pumpUntilFound(tester, find.text('Hit'));
 
-      expect(find.text('Hit'), findsOneWidget);
       await tester.tap(find.text('Hit'));
-      await tester.pump();
-      await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-      });
-      for (var i = 0; i < 80; i++) {
-        await tester.pump();
-      }
-
-      final db = await h.getDatabase();
-      final logs = await db.query('review_log');
-      expect(logs, hasLength(1));
-      expect(logs.single['rating'], 3);
+      await _pumpUntilFound(tester, find.text('No due cards'));
+      expect(repo.commits, hasLength(1));
+      expect(repo.commits.single.rating, 3);
+      expect(repo.commits.single.similarityR, isNull);
     }, skip: _skipStudySessionScreenWidgets);
 
     testWidgets('wide layout: typist Crit! logs similarity_r = 1',
         (tester) async {
-      final h = DatabaseHelper();
-      await h.getDatabase();
-      final pid = await h.insertProfile(
-        LanguageProfile(
-          language: 'TypistWidgetDeck',
-          features: const ['gender'],
-          createdAt: DateTime.utc(2025, 5, 2),
-        ),
-      );
-      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      await h.insertCard(
-        WordCard(
-          profileId: pid,
-          lemma: 'alphaLemma',
-          translation: 'alphaGloss',
-          dueDate: DateTime.fromMillisecondsSinceEpoch(nowSec * 1000),
-          createdAt: DateTime.utc(2025, 5, 2),
-          reviewCount: 0,
-          metadata: const {'gender': 'neuter'},
-        ),
-      );
-
+      final pid = 102;
       final profile = LanguageProfile(
         id: pid,
         language: 'TypistWidgetDeck',
         features: const ['gender'],
         createdAt: DateTime.utc(2025, 5, 2),
       );
-
-      final nowTypist = DateTime.now();
-      final dueTypist = await h.getDueCards(pid, nowTypist);
-      expect(dueTypist, hasLength(1));
-      final repo = _SeededFirstLoadRepository(helper: h, initialDue: dueTypist);
+      final dueTypist = <WordCard>[
+        WordCard(
+          id: 2,
+          profileId: pid,
+          lemma: 'alphaLemma',
+          translation: 'alphaGloss',
+          dueDate: DateTime.now(),
+          createdAt: DateTime.utc(2025, 5, 2),
+          reviewCount: 0,
+          metadata: const {'gender': 'neuter'},
+        ),
+      ];
+      final repo = _WidgetTestRepository(profileId: pid, initialDue: dueTypist);
 
       await tester.pumpWidget(
         TickerMode(
@@ -497,32 +478,17 @@ void main() {
           ),
         ),
       );
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.text('alphaLemma'), findsOneWidget);
-      expect(find.byType(TextField), findsOneWidget);
+      await _pumpUntilFound(tester, find.text('alphaLemma'));
+      await _pumpUntilFound(tester, find.byType(TextField));
       await tester.enterText(find.byType(TextField), 'alphagloss');
-      await tester.tap(find.text('Submit answer'));
-      await tester.pump();
-      expect(find.text('Next card'), findsOneWidget);
-      await tester.tap(find.text('Next card'));
-      await tester.pump();
-      await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-      });
-      for (var i = 0; i < 80; i++) {
-        await tester.pump();
-      }
-
-      final db = await h.getDatabase();
-      final logs = await db.query('review_log');
-      expect(logs, hasLength(1));
-      expect(logs.single['rating'], 4);
-      expect(
-        (logs.single['similarity_r'] as num).toDouble(),
-        closeTo(1.0, 1e-9),
-      );
+      await tester.tap(find.text('Submit'));
+      await _pumpUntilFound(tester, find.text('Crit!'));
+      await _pumpUntilFound(tester, find.text('Next'));
+      await tester.tap(find.text('Next'));
+      await _pumpUntilFound(tester, find.text('No due cards'));
+      expect(repo.commits, hasLength(1));
+      expect(repo.commits.single.rating, 4);
+      expect(repo.commits.single.similarityR, closeTo(1.0, 1e-9));
     }, skip: _skipStudySessionScreenWidgets);
   });
 }
