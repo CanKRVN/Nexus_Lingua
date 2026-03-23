@@ -34,6 +34,10 @@ jobs:
       - name: Dependencies
         run: flutter pub get
 
+      # sqflite_common_ffi_web does not bundle these; without them, web throws SqfliteFfiWebException.
+      - name: sqflite web binaries (wasm + shared worker)
+        run: dart run sqflite_common_ffi_web:setup
+
       - name: Analyze
         run: flutter analyze
 
